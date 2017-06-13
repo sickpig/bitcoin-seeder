@@ -99,6 +99,8 @@ void CAddrDb::Good_(const CService& addr, int clientV, std::string clientSV, int
     {
         goodId.insert(id);
         //    printf("%s: good; %i good nodes now\n", ToString(addr).c_str(), (int)goodId.size());
+        if (info.IsBU())
+            goodIdBU.insert(id);
     }
     nDirty++;
     ourId.push_back(id);
@@ -195,7 +197,7 @@ void CAddrDb::Add_(const CAddress& addr, bool force)
     nDirty++;
 }
 
-void CAddrDb::GetIPs_(set<CNetAddr>& ips, uint64_t requestedFlags, int max, const bool* nets)
+void CAddrDb::GetIPs_(set<CNetAddr>& ips, set<CNetAddr>& ipsBU, uint64_t requestedFlags, int max, const bool* nets)
 {
     if (goodId.size() == 0)
     {
@@ -216,6 +218,7 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, uint64_t requestedFlags, int max, cons
         }
         return;
     }
+
     std::vector<int> goodIdFiltered;
     for (std::set<int>::const_iterator it = goodId.begin(); it != goodId.end(); it++)
     {
@@ -226,15 +229,40 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, uint64_t requestedFlags, int max, cons
     if (!goodIdFiltered.size())
         return;
 
+    std::vector<int> goodIdBUFiltered;
+    for (std::set<int>::const_iterator it = goodIdBU.begin(); it != goodIdBU.end(); it++)
+    {
+        if ((idToInfo[*it].services & requestedFlags) == requestedFlags)
+            goodIdBUFiltered.push_back(*it);
+    }
+
     if (max > goodIdFiltered.size() / 2)
         max = goodIdFiltered.size() / 2;
     if (max < 1)
         max = 1;
 
     set<int> ids;
+    set<int> idsBU;
+
     while (ids.size() < max)
     {
         ids.insert(goodIdFiltered[rand() % goodIdFiltered.size()]);
+    }
+
+    while ((goodIdBUFiltered.size()) && (idsBU.size() < std::max((int)goodIdBUFiltered.size(),10)))
+    {
+        idsBU.insert(goodIdBUFiltered[rand() % goodIdBUFiltered.size()]);
+    }
+
+    // add BU about 10 BU nodes on top of the list
+    if (idsBU.size() > 0)
+    {
+        for (set<int>::const_iterator it = idsBU.begin(); it != idsBU.end(); it++)
+        {
+            CService& ip = idToInfo[*it].ip;
+            if (nets[ip.GetNetwork()])
+                ipsBU.insert(ip);
+        }
     }
     for (set<int>::const_iterator it = ids.begin(); it != ids.end(); it++)
     {

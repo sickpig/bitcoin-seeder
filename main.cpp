@@ -313,12 +313,34 @@ public:
         if (force || thisflag.cacheHits * 400 > (thisflag.cache.size() * thisflag.cache.size()) || (thisflag.cacheHits * thisflag.cacheHits * 20 > thisflag.cache.size() && (now - thisflag.cacheTime > 5)))
         {
             set<CNetAddr> ips;
-            db.GetIPs(ips, requestedFlags, 1000, nets);
+            set<CNetAddr> ipsBU;
+            db.GetIPs(ips, ipsBU, requestedFlags, 1000, nets);
             dbQueries++;
             thisflag.cache.clear();
             thisflag.nIPv4 = 0;
             thisflag.nIPv6 = 0;
-            thisflag.cache.reserve(ips.size());
+            thisflag.cache.reserve(ips.size() + ipsBU.size());
+            for (set<CNetAddr>::iterator it = ipsBU.begin(); it != ipsBU.end(); it++)
+            {
+                struct in_addr addr;
+                struct in6_addr addr6;
+                if ((*it).GetInAddr(&addr))
+                {
+                    addr_t a;
+                    a.v = 4;
+                    memcpy(&a.data.v4, &addr, 4);
+                    thisflag.cache.push_back(a);
+                    thisflag.nIPv4++;
+                }
+                else if ((*it).GetIn6Addr(&addr6))
+                {
+                    addr_t a;
+                    a.v = 6;
+                    memcpy(&a.data.v6, &addr6, 16);
+                    thisflag.cache.push_back(a);
+                    thisflag.nIPv6++;
+                }
+            }
             for (set<CNetAddr>::iterator it = ips.begin(); it != ips.end(); it++)
             {
                 struct in_addr addr;

@@ -106,13 +106,20 @@ public:
         return ret;
     }
 
+    // check if the node is BitcoinUnlimited node
+    bool IsBU() const
+    {
+        //TODO check lso for XTHIN flag and or SubVersion?
+        return (clientVersion > 80000);
+    }
+
     bool IsGood() const
     {
         return true;
         if (ip.GetPort() != GetDefaultPort())
             return false;
         if (!(services & NODE_NETWORK))
-            return false;
+            return false;  // that means pruned node won't be included in the response set by the seeder
         if (!ip.IsRoutable())
             return false;
         if (clientVersion && clientVersion < REQUIRE_VERSION)
@@ -256,6 +263,7 @@ private:
     std::deque<int> ourId;             // sequence of tried nodes, in order we have tried connecting to them (c,d)
     std::set<int> unkId;               // set of nodes not yet tried (b)
     std::set<int> goodId;              // set of good nodes  (d, good e)
+    std::set<int> goodIdBU;            // set of good nodes BU only (this is a subset of goodId)
     int nDirty;
 
 protected:
@@ -267,7 +275,7 @@ protected:
     void Bad_(const CService& ip, int ban);                                                    // mark an IP as bad (and optionally ban it) (must have been returned by Get_)
     void Skipped_(const CService& ip);                                                         // mark an IP as skipped (must have been returned by Get_)
     int Lookup_(const CService& ip);                                                           // look up id of an IP
-    void GetIPs_(std::set<CNetAddr>& ips, uint64_t requestedFlags, int max, const bool* nets); // get a random set of IPs (shared lock only)
+    void GetIPs_(std::set<CNetAddr>& ips, std::set<CNetAddr>& ipsBU, uint64_t requestedFlags, int max, const bool* nets); // get a random set of IPs (shared lock only)
 
 public:
     std::map<CService, time_t> banned; // nodes that are banned, with their unban time (a)
@@ -434,9 +442,9 @@ public:
             }
         }
     }
-    void GetIPs(std::set<CNetAddr>& ips, uint64_t requestedFlags, int max, const bool* nets)
+    void GetIPs(std::set<CNetAddr>& ips, std::set<CNetAddr>& ipsBU, uint64_t requestedFlags, int max, const bool* nets)
     {
         SHARED_CRITICAL_BLOCK(cs)
-        GetIPs_(ips, requestedFlags, max, nets);
+        GetIPs_(ips, ipsBU, requestedFlags, max, nets);
     }
 };
