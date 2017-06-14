@@ -255,14 +255,11 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, set<CNetAddr>& ipsBU, uint64_t request
     }
 
     // add BU about 10 BU nodes on top of the list
-    if (idsBU.size() > 0)
+    for (set<int>::const_iterator it = idsBU.begin(); it != idsBU.end(); it++)
     {
-        for (set<int>::const_iterator it = idsBU.begin(); it != idsBU.end(); it++)
-        {
-            CService& ip = idToInfo[*it].ip;
-            if (nets[ip.GetNetwork()])
-                ipsBU.insert(ip);
-        }
+        CService& ip = idToInfo[*it].ip;
+        if (nets[ip.GetNetwork()])
+            ipsBU.insert(ip);
     }
     for (set<int>::const_iterator it = ids.begin(); it != ids.end(); it++)
     {
