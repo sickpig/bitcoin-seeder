@@ -249,7 +249,7 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, set<CNetAddr>& ipsBU, uint64_t request
         ids.insert(goodIdFiltered[rand() % goodIdFiltered.size()]);
     }
 
-    while ((goodIdBUFiltered.size()) && (idsBU.size() < std::max((int)goodIdBUFiltered.size(),10)))
+    while ((goodIdBUFiltered.size()) && (idsBU.size() < std::min((int)goodIdBUFiltered.size(),10)))
     {
         idsBU.insert(goodIdBUFiltered[rand() % goodIdBUFiltered.size()]);
     }
