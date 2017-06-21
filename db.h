@@ -115,7 +115,6 @@ public:
 
     bool IsGood() const
     {
-        return true;
         if (ip.GetPort() != GetDefaultPort())
             return false;
         if (!(services & NODE_NETWORK))
