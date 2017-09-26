@@ -202,13 +202,12 @@ public:
         }
         if (filter_whitelist.empty())
         {
-            filter_whitelist.insert(1);
-            filter_whitelist.insert(5);
-            // BU: disable NODE_WITNESS by default
-            // filter_whitelist.insert(9);
-            // filter_whitelist.insert(13);
-            // BU: enable NODE_XTHIN by default
-            filter_whitelist.insert(21); // (1 << 0 | 1 << 2 | 1 << 4)
+            // enable filtering by NODE_NETWORK and NODE_CASH
+            filter_whitelist.insert(33); // (1 << 0 | 1 << 5)
+            // enable filtering by NODE_NETWORK and NODE_CASH and NODE_BLOOM and NODE_CASH
+            filter_whitelist.insert(53); // (1 << 0 | 1 << 2 | 1 << 4 | 1 << 5)
+            // enable filtering by NODE_NETWORK and NODE_BLOOM and NODE_CASH
+            filter_whitelist.insert(37); // (1 << 0 | 1 << 2 | 1 << 5)
         }
         if (host != NULL && ns == NULL)
             showHelp = true;
@@ -515,7 +514,7 @@ extern "C" void* ThreadStats(void*)
     return nullptr;
 }
 
-static const string mainnet_seeds[] = {"seed.bitnodes.io", "seed.btcc.com", "seed.bitcoin.sipa.be", ""};
+static const string mainnet_seeds[] = {"seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", "seed.deadalnix.me", ""};
 static const string nolnet_seeds[] = {"nolnet-seed.bitcoinunlimited.info",
     ""};
 static const string* seeds = mainnet_seeds;

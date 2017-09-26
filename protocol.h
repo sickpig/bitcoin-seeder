@@ -61,6 +61,11 @@ public:
 enum
 {
     NODE_NETWORK = (1 << 0),
+    // BUIP055 - UAHF
+    // NODE_BITCOIN_CASH means the node supports the BCC/UAHF hard fork.  This is intended to be just
+    // a temporary service bit until the fork actually happens.  After the for it can be
+    // removed.
+    NODE_BITCOIN_CASH = (1 << 5),
 };
 
 class CAddress : public CService

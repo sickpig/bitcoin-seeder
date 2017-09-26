@@ -112,6 +112,8 @@ public:
             return false;
         if (!(services & NODE_NETWORK))
             return false;
+        if (!(services & NODE_BITCOIN_CASH))
+            return false;
         if (!ip.IsRoutable())
             return false;
         if (clientVersion && clientVersion < REQUIRE_VERSION)
