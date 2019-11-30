@@ -415,7 +415,7 @@ ssize_t static dnshandle(dns_opt_t* opt, const unsigned char* inbuf, size_t insi
     unsigned char* outpos = outbuf + (inpos - inbuf);
     unsigned char* outend = outbuf + BUFLEN;
 
-    //   printf("DNS: Request host='%s' type=%i class=%i\n", name, typ, cls);
+    //    printf("DNS: Request host='%s' type=%i class=%i\n", name, typ, cls);
 
     // calculate max size of authority section
 

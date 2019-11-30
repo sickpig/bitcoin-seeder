@@ -3,6 +3,8 @@
 #include "db.h"
 #include "netbase.h"
 #include "protocol.h"
+#include "xversionmessage.h"
+#include "xversionkeys.h"
 #include "serialize.h"
 #include "uint256.h"
 
@@ -27,6 +29,12 @@ class CNode
     int64 doneAfter;
     CAddress you;
 
+public:
+    uint64_t maxGrapheneVersion = 0;
+    uint64_t electrsVersion = 0;
+    uint64_t capdVersion = 0;
+private:
+
     int GetTimeout()
     {
         if (you.IsTor())
@@ -42,7 +50,7 @@ class CNode
         nHeaderStart = vSend.size();
         vSend << CMessageHeader(pszCommand, 0);
         nMessageStart = vSend.size();
-        //    printf("%s: SEND %s\n", ToString(you).c_str(), pszCommand);
+        //   printf("%s: SEND %s\n", ToString(you).c_str(), pszCommand);
     }
 
     void AbortMessage()
@@ -114,13 +122,13 @@ class CNode
         }
         else
         {
-            doneAfter = time(NULL) + 1;
+            doneAfter = time(NULL) + 5;  // Give extra time because the XVERSION message may come in
         }
     }
 
     bool ProcessMessage(string strCommand, CDataStream& vRecv)
     {
-        //    printf("%s: RECV %s\n", ToString(you).c_str(), strCommand.c_str());
+        //   printf("%s: RECV %s\n", ToString(you).c_str(), strCommand.c_str());
         if (strCommand == "version")
         {
             int64 nTime;
@@ -156,6 +164,22 @@ class CNode
             this->vRecv.SetVersion(min(nVersion, PROTOCOL_VERSION));
             GotVersion();
             return false;
+        }
+
+        if (strCommand == "xversion")
+        {
+            // printf("XVERSION received\n");
+            CXVersionMessage msg;
+            vRecv >> msg;
+            maxGrapheneVersion = msg.as_u64c(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED);
+            BeginMessage("xverack");
+            EndMessage();
+
+            if (!vAddr)  // Early quit if we get an XVERSION message sine that's the last thing we need if we aren't looking for an ADDR message
+            {
+                doneAfter = time(NULL) + 1;
+            }
+
         }
 
         if (strCommand == "addr" && vAddr)
@@ -343,7 +367,7 @@ public:
     }
 };
 
-bool TestNode(const CService& cip, int& ban, int& clientV, std::string& clientSV, int& blocks, vector<CAddress>* vAddr)
+bool TestNode(const CService& cip, uint64_t& grapheneVersion, uint64_t electronVersion, uint64_t capdVersion, int& ban, int& clientV, std::string& clientSV, int& blocks, vector<CAddress>* vAddr)
 {
     try
     {
@@ -360,6 +384,9 @@ bool TestNode(const CService& cip, int& ban, int& clientV, std::string& clientSV
         clientV = node.GetClientVersion();
         clientSV = node.GetClientSubVersion();
         blocks = node.GetStartingHeight();
+        grapheneVersion = node.maxGrapheneVersion;
+        electronVersion = node.electrsVersion;
+        capdVersion = node.capdVersion;
         //  printf("%s: %s!!!\n", cip.ToString().c_str(), ret ? "GOOD" : "BAD");
         return ret;
     }

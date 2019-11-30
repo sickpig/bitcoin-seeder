@@ -1,4 +1,12 @@
+/*
+Manual test:
+run with: ./dnsseed -h bitcoinunlimited.net -n bitcoinunlimited.net -p 12345 -m email@example.com -t 1 -d 1
+$ dig seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+$ dig s_graphene.bitcoinunlimited.net @127.0.0.1 -p 12345
+*/
+
 #include <algorithm>
+#include <string.h>
 
 #define __STDC_FORMAT_MACROS
 #include <atomic>
@@ -11,6 +19,7 @@
 
 #include "bitcoin.h"
 #include "db.h"
+#include "xversionkeys.h"
 
 #define ANSI_COLOR_RED "\x1b[31m"
 #define ANSI_COLOR_GREEN "\x1b[32m"
@@ -235,8 +244,9 @@ void LoadFromNode(const char* ipPort)
     res.nClientV = 0;
     res.nHeight = 0;
     res.strClientV = "";
-    res.fGood = TestNode(res.service, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, &addr);
-    db.Add(addr);
+    res.fGood = TestNode(res.service, res.grapheneVersion, res.electrsVersion, res.capdVersion, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, &addr);
+    db.Add(addr); // Add all the nodes we got from the ADDR message
+    db.Add(res.service, res);  // Explicitly add this node because we know its XVERSION config
     printf("Found %d addresses: ", (int)addr.size());
     for (vector<CAddress>::iterator i = addr.begin(); i != addr.end(); i++)
     {
@@ -270,7 +280,8 @@ extern "C" void* ThreadCrawler(void* data)
             res.nHeight = 0;
             res.strClientV = "";
             bool getaddr = res.ourLastSuccess + 86400 < now;
-            res.fGood = TestNode(res.service, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, getaddr ? &addr : NULL);
+            res.fGood = TestNode(res.service, res.grapheneVersion, res.electrsVersion, res.capdVersion, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, getaddr ? &addr : NULL);
+            //    if (res.fGood) printf("\nClient: %s, graphene: %lu\n", res.strClientV.c_str(), (long unsigned int) res.grapheneVersion);
         }
         db.ResultMany(ips);
         db.Add(addr);
@@ -371,6 +382,7 @@ extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int 
 
     uint64_t requestedFlags = 0;
     int hostlen = strlen(requestedHostname);
+    // printf("requested hostname: %s\n", requestedHostname);
     if (hostlen > 1 && requestedHostname[0] == 'x' && requestedHostname[1] != '0')
     {
         char* pEnd;
@@ -380,36 +392,93 @@ extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int 
         else
             return 0;
     }
-    else if (strcasecmp(requestedHostname, thread->dns_opt.host))
-        return 0;
-    thread->cacheHit(requestedFlags);
-    auto& thisflag = thread->perflag[requestedFlags];
-    unsigned int size = thisflag.cache.size();
-    unsigned int maxmax = (ipv4 ? thisflag.nIPv4 : 0) + (ipv6 ? thisflag.nIPv6 : 0);
-    if (max > size)
-        max = size;
-    if (max > maxmax)
-        max = maxmax;
-    int i = 0;
-    while (i < max)
+
+    // Find the bounds of the first name in the dotted hostname
+    int sz = 0;
+    char* end = strchr(requestedHostname, '.');
+    if (end != nullptr) sz = end-requestedHostname;
+    else sz = strlen(requestedHostname);
+
+    // If just the base DNS was specified, then return nodes without filtering
+    if (strcasecmp(requestedHostname, thread->dns_opt.host)==0)
     {
-        int j = i + (rand() % (size - i));
-        do
+        thread->cacheHit(requestedFlags);
+        auto& thisflag = thread->perflag[requestedFlags];
+        unsigned int size = thisflag.cache.size();
+        unsigned int maxmax = (ipv4 ? thisflag.nIPv4 : 0) + (ipv6 ? thisflag.nIPv6 : 0);
+        if (max > size)
+            max = size;
+        if (max > maxmax)
+            max = maxmax;
+        int i = 0;
+        while (i < max)
         {
-            bool ok = (ipv4 && thisflag.cache[j].v == 4) ||
-                      (ipv6 && thisflag.cache[j].v == 6);
-            if (ok)
-                break;
-            j++;
-            if (j == size)
-                j = i;
-        } while (1);
-        addr[i] = thisflag.cache[j];
-        thisflag.cache[j] = thisflag.cache[i];
-        thisflag.cache[i] = addr[i];
-        i++;
+            int j = i + (rand() % (size - i));
+            do
+            {
+                bool ok = (ipv4 && thisflag.cache[j].v == 4) ||
+                    (ipv6 && thisflag.cache[j].v == 6);
+                if (ok)
+                    break;
+                j++;
+                if (j == size)
+                    j = i;
+            } while (1);
+            addr[i] = thisflag.cache[j];
+            thisflag.cache[j] = thisflag.cache[i];
+            thisflag.cache[i] = addr[i];
+            i++;
+        }
+        return max;
     }
-    return max;
+
+    // For 4 word names, make sure the last 3 match our suffix
+    if (strcasecmp(end+1, thread->dns_opt.host)!=0)
+        return 0;
+
+    // If the host is graphene, then only return graphene compatible nodes
+    if ((sz==strlen("graphene")) && (strncasecmp(requestedHostname, "graphene", sz)==0))
+    {
+        static bool nets[NET_MAX] = {};
+        if (!nets[NET_IPV4])
+        {
+            nets[NET_IPV4] = true;
+            nets[NET_IPV6] = true;
+        }
+
+        set<CNetAddr> ips;
+        db.GetIPs(ips, 1000, nets, XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED);
+
+        int max2 = std::min(max, (int) ips.size());
+
+        int i = 0;
+        for(int i=0;i<max;i++)
+        {
+            if (ips.size()==0) break;
+
+            int pos = rand() % ips.size();
+            auto it = std::begin(ips);
+            std::advance(it, pos);
+            auto& cn = *it;
+
+            struct in_addr addr4;
+            struct in6_addr addr6;
+            if (cn.GetInAddr(&addr4))
+                {
+                    addr[i].v = 4;
+                    memcpy(&addr[i].data.v4, &addr4, 4);
+                }
+            else if (cn.GetIn6Addr(&addr6))
+                {
+                    addr[i].v = 6;
+                    memcpy(&addr[i].data.v6, &addr6, 16);
+                }
+            ips.erase(it);
+        }
+        return max2;
+    }
+
+    return 0;
 }
 
 vector<CDnsThread*> dnsThread;
@@ -514,7 +583,7 @@ extern "C" void* ThreadStats(void*)
     return nullptr;
 }
 
-static const string mainnet_seeds[] = {"seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", "seed.deadalnix.me", ""};
+static const string mainnet_seeds[] = { /* "btccash-seeder.bitcoinunlimited.info", */ "seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", ""};
 static const string nolnet_seeds[] = {"nolnet-seed.bitcoinunlimited.info",
     ""};
 static const string* seeds = mainnet_seeds;
@@ -534,7 +603,7 @@ extern "C" void* ThreadSeeder(void*)
             LookupHost(seeds[i].c_str(), ips);
             for (vector<CNetAddr>::iterator it = ips.begin(); it != ips.end(); it++)
             {
-                db.Add(CService(*it, GetDefaultPort()), true);
+                db.Add(CService(*it, GetDefaultPort()), CServiceResult(), true);
             }
         }
         Sleep(1800000);

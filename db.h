@@ -71,6 +71,9 @@ class CAddrInfo
 private:
     CService ip;
     uint64_t services;
+    uint64_t grapheneVersion = 0;
+    uint64_t electrsVersion = 0;
+    uint64_t capdVersion = 0;
     int64 lastTry;
     int64 ourLastTry;
     int64 ourLastSuccess;
@@ -191,6 +194,9 @@ public:
         READWRITE(version);
         READWRITE(ip);
         READWRITE(services);
+        READWRITE(grapheneVersion);
+        READWRITE(electrsVersion);
+        READWRITE(capdVersion);
         READWRITE(lastTry);
         unsigned char tried = ourLastTry != 0;
         READWRITE(tried);
@@ -231,6 +237,9 @@ public:
 struct CServiceResult
 {
     CService service;
+    uint64_t grapheneVersion = 0;
+    uint64_t electrsVersion = 0;
+    uint64_t capdVersion = 0;
     bool fGood;
     int nBanTime;
     int nHeight;
@@ -261,14 +270,15 @@ private:
 
 protected:
     // internal routines that assume proper locks are acquired
-    void Add_(const CAddress& addr, bool force); // add an address
+    void Add_(const CAddress& addr, const CServiceResult& result, bool force); // add an address
     bool Get_(CServiceResult& ip, int& wait);    // get an IP to test (must call Good_, Bad_, or Skipped_ on result afterwards)
     bool GetMany_(std::vector<CServiceResult>& ips, int max, int& wait);
-    void Good_(const CService& ip, int clientV, std::string clientSV, int blocks);             // mark an IP as good (must have been returned by Get_)
+    void Good_(const CService& ip, int clientV, std::string clientSV, int blocks, uint64_t grapheneVersion, uint64_t electrsVersion, uint64_t capdVersion);             // mark an IP as good (must have been returned by Get_)
     void Bad_(const CService& ip, int ban);                                                    // mark an IP as bad (and optionally ban it) (must have been returned by Get_)
     void Skipped_(const CService& ip);                                                         // mark an IP as skipped (must have been returned by Get_)
     int Lookup_(const CService& ip);                                                           // look up id of an IP
     void GetIPs_(std::set<CNetAddr>& ips, uint64_t requestedFlags, int max, const bool* nets); // get a random set of IPs (shared lock only)
+    void GetIPs_(std::set<CNetAddr>& ips, int max, const bool* nets, uint64_t xversionFlag); // get a random set of IPs (shared lock only)
 
 public:
     std::map<CService, time_t> banned; // nodes that are banned, with their unban time (a)
@@ -373,21 +383,27 @@ public:
                             }
                         });)
 
-    void Add(const CAddress& addr, bool fForce = false)
+    void Add(const CAddress& addr, const CServiceResult& result, bool fForce = false)
     {
         CRITICAL_BLOCK(cs)
-        Add_(addr, fForce);
+        Add_(addr, result, fForce);
     }
-    void Add(const std::vector<CAddress>& vAddr, bool fForce = false)
+    void Add(const std::vector<CAddress>& vAddr, const std::vector<CServiceResult>& result, bool fForce = false)
     {
         CRITICAL_BLOCK(cs)
         for (int i = 0; i < vAddr.size(); i++)
-            Add_(vAddr[i], fForce);
+            Add_(vAddr[i], result[i], fForce);
     }
-    void Good(const CService& addr, int clientVersion, std::string clientSubVersion, int blocks)
+    void Add(const std::vector<CAddress>& vAddr,  bool fForce = false)
     {
         CRITICAL_BLOCK(cs)
-        Good_(addr, clientVersion, clientSubVersion, blocks);
+        for (int i = 0; i < vAddr.size(); i++)
+            Add_(vAddr[i], CServiceResult(), fForce);
+    }
+    void Good(const CService& addr, int clientVersion, std::string clientSubVersion, int blocks, uint64_t grapheneVersion, uint64_t electrsVersion, uint64_t capdVersion)
+    {
+        CRITICAL_BLOCK(cs)
+            Good_(addr, clientVersion, clientSubVersion, blocks, grapheneVersion, electrsVersion, capdVersion);
     }
     void Skipped(const CService& addr)
     {
@@ -426,7 +442,7 @@ public:
             {
                 if (ips[i].fGood)
                 {
-                    Good_(ips[i].service, ips[i].nClientV, ips[i].strClientV, ips[i].nHeight);
+                    Good_(ips[i].service, ips[i].nClientV, ips[i].strClientV, ips[i].nHeight, ips[i].grapheneVersion, ips[i].electrsVersion, ips[i].capdVersion);
                 }
                 else
                 {
@@ -439,5 +455,11 @@ public:
     {
         SHARED_CRITICAL_BLOCK(cs)
         GetIPs_(ips, requestedFlags, max, nets);
+    }
+
+    void GetIPs(std::set<CNetAddr>& ips, int max, const bool* nets, uint64_t xversionFlag)
+    {
+        SHARED_CRITICAL_BLOCK(cs)
+        GetIPs_(ips, max, nets, xversionFlag);
     }
 };

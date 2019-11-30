@@ -1,4 +1,5 @@
 #include "db.h"
+#include "xversionkeys.h"
 #include <stdlib.h>
 
 using namespace std;
@@ -67,6 +68,9 @@ bool CAddrDb::Get_(CServiceResult& ip, int& wait)
         }
         else
         {
+            ip.grapheneVersion = idToInfo[ret].grapheneVersion;
+            ip.electrsVersion = idToInfo[ret].electrsVersion;
+            ip.capdVersion = idToInfo[ret].capdVersion;
             ip.service = idToInfo[ret].ip;
             ip.ourLastSuccess = idToInfo[ret].ourLastSuccess;
             break;
@@ -83,7 +87,7 @@ int CAddrDb::Lookup_(const CService& ip)
     return -1;
 }
 
-void CAddrDb::Good_(const CService& addr, int clientV, std::string clientSV, int blocks)
+void CAddrDb::Good_(const CService& addr, int clientV, std::string clientSV, int blocks, uint64_t grapheneVersion, uint64_t electrsVersion, uint64_t capdVersion)
 {
     int id = Lookup_(addr);
     if (id == -1)
@@ -91,6 +95,9 @@ void CAddrDb::Good_(const CService& addr, int clientV, std::string clientSV, int
     unkId.erase(id);
     banned.erase(addr);
     CAddrInfo& info = idToInfo[id];
+    info.grapheneVersion = grapheneVersion;
+    info.electrsVersion = electrsVersion;
+    info.capdVersion = capdVersion;
     info.clientVersion = clientV;
     info.clientSubVersion = clientSV;
     info.blocks = blocks;
@@ -152,7 +159,7 @@ void CAddrDb::Skipped_(const CService& addr)
 }
 
 
-void CAddrDb::Add_(const CAddress& addr, bool force)
+void CAddrDb::Add_(const CAddress& addr, const CServiceResult& result, bool force)
 {
     if (!force && !addr.IsRoutable())
         return;
@@ -165,9 +172,13 @@ void CAddrDb::Add_(const CAddress& addr, bool force)
         else
             return;
     }
+    
     if (ipToId.count(ipp))
     {
         CAddrInfo& ai = idToInfo[ipToId[ipp]];
+        if (result.grapheneVersion) ai.grapheneVersion = result.grapheneVersion;
+        if (result.electrsVersion) ai.electrsVersion = result.electrsVersion;
+        if (result.capdVersion) ai.capdVersion = result.capdVersion;
         if (addr.nTime > ai.lastTry || ai.services != addr.nServices)
         {
             ai.lastTry = addr.nTime;
@@ -183,6 +194,9 @@ void CAddrDb::Add_(const CAddress& addr, bool force)
     CAddrInfo ai;
     ai.ip = ipp;
     ai.services = addr.nServices;
+    if (result.grapheneVersion) ai.grapheneVersion = result.grapheneVersion;
+    if (result.electrsVersion) ai.electrsVersion = result.electrsVersion;
+    if (result.capdVersion) ai.capdVersion = result.capdVersion;
     ai.lastTry = addr.nTime;
     ai.ourLastTry = 0;
     ai.total = 0;
@@ -221,6 +235,73 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, uint64_t requestedFlags, int max, cons
     {
         if ((idToInfo[*it].services & requestedFlags) == requestedFlags)
             goodIdFiltered.push_back(*it);
+    }
+
+    if (!goodIdFiltered.size())
+        return;
+
+    if (max > goodIdFiltered.size() / 2)
+        max = goodIdFiltered.size() / 2;
+    if (max < 1)
+        max = 1;
+
+    set<int> ids;
+    while (ids.size() < max)
+    {
+        ids.insert(goodIdFiltered[rand() % goodIdFiltered.size()]);
+    }
+    for (set<int>::const_iterator it = ids.begin(); it != ids.end(); it++)
+    {
+        CService& ip = idToInfo[*it].ip;
+        if (nets[ip.GetNetwork()])
+            ips.insert(ip);
+    }
+}
+
+
+void CAddrDb::GetIPs_(set<CNetAddr>& ips, int max, const bool* nets, uint64_t xversionFlags)
+{
+    if (goodId.size() == 0)
+    {
+        int id = -1;
+        if (ourId.size() == 0)
+        {
+            if (unkId.size() == 0)
+                return;
+            id = *unkId.begin();
+        }
+        else
+        {
+            id = *ourId.begin();
+        }
+        
+        if (id >= 0)
+        {
+            if (xversionFlags == XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED)
+            {
+                if (idToInfo[id].grapheneVersion > 0)
+                    ips.insert(idToInfo[id].ip);
+            }
+        }
+        return;
+    }
+    std::vector<int> goodIdFiltered;
+    for (std::set<int>::const_iterator it = goodId.begin(); it != goodId.end(); it++)
+    {
+        if (xversionFlags == XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED)
+        {
+            CAddrInfo& info = idToInfo[*it];
+            if (info.grapheneVersion > 0)
+            {
+                goodIdFiltered.push_back(*it);
+                // printf("YES: %s %lu %lu %lu\n", info.clientSubVersion.c_str(), info.grapheneVersion, info.electrsVersion, info.capdVersion);
+            }
+            else
+            {
+                // printf("NO:  %s %lu %lu %lu\n", info.clientSubVersion.c_str(), info.grapheneVersion, info.electrsVersion, info.capdVersion);
+            }
+        }
+        // TODO add electrs and capd
     }
 
     if (!goodIdFiltered.size())
