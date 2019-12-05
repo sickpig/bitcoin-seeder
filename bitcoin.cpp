@@ -176,7 +176,7 @@ private:
             BeginMessage("xverack");
             EndMessage();
 
-            if (!vAddr)  // Early quit if we get an XVERSION message sine that's the last thing we need if we aren't looking for an ADDR message
+            if (!vAddr)  // Early quit if we get an XVERSION message since that's the last thing we need if we aren't looking for an ADDR message
             {
                 doneAfter = time(NULL) + 1;
             }
