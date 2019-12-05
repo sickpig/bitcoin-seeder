@@ -172,6 +172,7 @@ private:
             CXVersionMessage msg;
             vRecv >> msg;
             maxGrapheneVersion = msg.as_u64c(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED);
+            electrsVersion = msg.as_u64c(XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION);
             BeginMessage("xverack");
             EndMessage();
 
@@ -367,7 +368,7 @@ public:
     }
 };
 
-bool TestNode(const CService& cip, uint64_t& grapheneVersion, uint64_t electronVersion, uint64_t capdVersion, int& ban, int& clientV, std::string& clientSV, int& blocks, vector<CAddress>* vAddr)
+bool TestNode(const CService& cip, uint64_t& grapheneVersion, uint64_t& electrumServerVersion, uint64_t& capdVersion, int& ban, int& clientV, std::string& clientSV, int& blocks, vector<CAddress>* vAddr)
 {
     try
     {
@@ -385,7 +386,7 @@ bool TestNode(const CService& cip, uint64_t& grapheneVersion, uint64_t electronV
         clientSV = node.GetClientSubVersion();
         blocks = node.GetStartingHeight();
         grapheneVersion = node.maxGrapheneVersion;
-        electronVersion = node.electrsVersion;
+        electrumServerVersion = node.electrsVersion;
         capdVersion = node.capdVersion;
         //  printf("%s: %s!!!\n", cip.ToString().c_str(), ret ? "GOOD" : "BAD");
         return ret;

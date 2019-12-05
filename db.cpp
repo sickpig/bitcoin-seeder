@@ -274,7 +274,7 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, int max, const bool* nets, uint64_t xv
         {
             id = *ourId.begin();
         }
-        
+
         if (id >= 0)
         {
             if (xversionFlags == XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED)
@@ -282,6 +282,12 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, int max, const bool* nets, uint64_t xv
                 if (idToInfo[id].grapheneVersion > 0)
                     ips.insert(idToInfo[id].ip);
             }
+            else if (xversionFlags == XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION)
+            {
+                if (idToInfo[id].electrsVersion > 0)
+                    ips.insert(idToInfo[id].ip);
+            }
+            // TODO add capd
         }
         return;
     }
@@ -301,7 +307,13 @@ void CAddrDb::GetIPs_(set<CNetAddr>& ips, int max, const bool* nets, uint64_t xv
                 // printf("NO:  %s %lu %lu %lu\n", info.clientSubVersion.c_str(), info.grapheneVersion, info.electrsVersion, info.capdVersion);
             }
         }
-        // TODO add electrs and capd
+        else if (xversionFlags == XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION)
+        {
+            CAddrInfo& info = idToInfo[*it];
+            if (info.electrsVersion > 0)
+                goodIdFiltered.push_back(*it);
+        }
+        // TODO add capd
     }
 
     if (!goodIdFiltered.size())

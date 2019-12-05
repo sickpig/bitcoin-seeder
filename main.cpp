@@ -1,8 +1,9 @@
 /*
 Manual test:
-run with: ./dnsseed -h bitcoinunlimited.net -n bitcoinunlimited.net -p 12345 -m email@example.com -t 1 -d 1
+run with: ./dnsseed -h seed.bitcoinunlimited.net -n seed.bitcoinunlimited.net -p 12345 -m email@example.com -t 1 -d 1
 $ dig seed.bitcoinunlimited.net @127.0.0.1 -p 12345
-$ dig s_graphene.bitcoinunlimited.net @127.0.0.1 -p 12345
+$ dig graphene.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+$ dig electrumserver.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 */
 
 #include <algorithm>
@@ -376,6 +377,48 @@ public:
     }
 };
 
+
+int SelectRandomByXversion(uint64 xverField, addr_t* addr, int max)
+{
+        static bool nets[NET_MAX] = {};
+        if (!nets[NET_IPV4])
+        {
+            nets[NET_IPV4] = true;
+            nets[NET_IPV6] = true;
+        }
+
+        set<CNetAddr> ips;
+        db.GetIPs(ips, 1000, nets, xverField);
+
+        int max2 = std::min(max, (int) ips.size());
+
+        int i = 0;
+        for(int i=0;i<max;i++)
+        {
+            if (ips.size()==0) break;
+
+            int pos = rand() % ips.size();
+            auto it = std::begin(ips);
+            std::advance(it, pos);
+            auto& cn = *it;
+
+            struct in_addr addr4;
+            struct in6_addr addr6;
+            if (cn.GetInAddr(&addr4))
+                {
+                    addr[i].v = 4;
+                    memcpy(&addr[i].data.v4, &addr4, 4);
+                }
+            else if (cn.GetIn6Addr(&addr6))
+                {
+                    addr[i].v = 6;
+                    memcpy(&addr[i].data.v6, &addr6, 16);
+                }
+            ips.erase(it);
+        }
+        return max2;
+}
+
 extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int max, int ipv4, int ipv6)
 {
     CDnsThread* thread = (CDnsThread*)data;
@@ -439,43 +482,11 @@ extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int 
     // If the host is graphene, then only return graphene compatible nodes
     if ((sz==strlen("graphene")) && (strncasecmp(requestedHostname, "graphene", sz)==0))
     {
-        static bool nets[NET_MAX] = {};
-        if (!nets[NET_IPV4])
-        {
-            nets[NET_IPV4] = true;
-            nets[NET_IPV6] = true;
-        }
-
-        set<CNetAddr> ips;
-        db.GetIPs(ips, 1000, nets, XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED);
-
-        int max2 = std::min(max, (int) ips.size());
-
-        int i = 0;
-        for(int i=0;i<max;i++)
-        {
-            if (ips.size()==0) break;
-
-            int pos = rand() % ips.size();
-            auto it = std::begin(ips);
-            std::advance(it, pos);
-            auto& cn = *it;
-
-            struct in_addr addr4;
-            struct in6_addr addr6;
-            if (cn.GetInAddr(&addr4))
-                {
-                    addr[i].v = 4;
-                    memcpy(&addr[i].data.v4, &addr4, 4);
-                }
-            else if (cn.GetIn6Addr(&addr6))
-                {
-                    addr[i].v = 6;
-                    memcpy(&addr[i].data.v6, &addr6, 16);
-                }
-            ips.erase(it);
-        }
-        return max2;
+        return SelectRandomByXversion(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED, addr, max);
+    }
+    else    if ((sz==strlen("electrumserver")) && (strncasecmp(requestedHostname, "electrumserver", sz)==0))
+    {
+        return SelectRandomByXversion(XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION, addr, max);
     }
 
     return 0;
