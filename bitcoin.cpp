@@ -239,7 +239,7 @@ private:
             vRecv >> hdr;
             if (!hdr.IsValid())
             {
-                // printf("%s: BAD (invalid header)\n", ToString(you).c_str());
+                printf("%s: BAD (invalid header)\n", ToString(you).c_str());
                 ban = 100000;
                 return true;
             }
@@ -247,7 +247,7 @@ private:
             unsigned int nMessageSize = hdr.nMessageSize;
             if (!fNolNet && (nMessageSize > MAX_SIZE))
             {
-                // printf("%s: BAD (message too large)\n", ToString(you).c_str());
+                printf("%s: BAD (message too large)\n", ToString(you).c_str());
                 ban = 100000;
                 return true;
             }

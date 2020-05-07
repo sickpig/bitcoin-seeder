@@ -17,10 +17,13 @@ $ dig electrumserver.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-
 #include "bitcoin.h"
 #include "db.h"
 #include "xversionkeys.h"
+
+extern "C" {
+#include "dns.h"
+}
 
 #define ANSI_COLOR_RED "\x1b[31m"
 #define ANSI_COLOR_GREEN "\x1b[32m"
@@ -35,6 +38,9 @@ using namespace std;
 bool fNolNet = false;
 bool nextChain = false;
 int fQuiet = 0;
+
+addr_t  provided;
+addr_t* alwaysProvide = nullptr;
 
 inline void log_printf(const char* fmt, ...)
 {
@@ -78,6 +84,7 @@ public:
                                   "-t <threads>    Number of crawlers to run in parallel (default 96)\n"
                                   "-d <threads>    Number of DNS server threads (default 4)\n"
                                   "-p <port>       UDP port to listen on (default 53)\n"
+                                  "-a <ip>         Always provide this IPv4 address\n"
                                   "-o <ip:port>    Tor proxy IP/Port\n"
                                   "-i <ip:port>    IPV4 SOCKS5 proxy IP/Port\n"
                                   "-k <ip:port>    IPV6 SOCKS5 proxy IP/Port\n"
@@ -114,11 +121,18 @@ public:
 
                 {0, 0, 0, 0}};
             int option_index = 0;
-            int c = getopt_long(argc, argv, "h:n:m:t:p:d:o:i:k:w:s:", long_options, &option_index);
+            int c = getopt_long(argc, argv, "a:h:n:m:t:p:d:o:i:k:w:s:", long_options, &option_index);
             if (c == -1)
                 break;
             switch (c)
             {
+            case 'a':
+            {
+                const char* ip = optarg;
+                provided.v = 4;
+                inet_pton(AF_INET, ip, provided.data.v4);
+                alwaysProvide = &provided;
+            } break;
             case 'h':
             {
                 host = optarg;
@@ -233,18 +247,14 @@ public:
     }
 };
 
-extern "C" {
-#include "dns.h"
-}
-
 CAddrDb db;
 
 void LoadFromNode(const char* ipPort)
 {
-    printf("Loading addresses from %s\n", ipPort);
     vector<CAddress> addr;
     CServiceResult res;
     unsigned int portnum = nextChain ? 7228 : fNolNet ? 9333 : 8333;
+    printf("Loading addresses from %s: %d\n", ipPort, portnum);
     res.service = CService(ipPort, portnum, true);
     res.nBanTime = 0;
     res.nClientV = 0;
@@ -459,6 +469,13 @@ extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int 
         if (max > maxmax)
             max = maxmax;
         int i = 0;
+        if (alwaysProvide)
+        {
+            memcpy(&addr[i],alwaysProvide, sizeof(addr_t));
+            thisflag.cache[i] = addr[i];
+            i++;
+        }
+
         while (i < max)
         {
             int j = i + (rand() % (size - i));
