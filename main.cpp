@@ -33,6 +33,7 @@ $ dig electrumserver.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 using namespace std;
 
 bool fNolNet = false;
+bool nextChain = false;
 int fQuiet = 0;
 
 inline void log_printf(const char* fmt, ...)
@@ -52,6 +53,7 @@ public:
     int nPort;
     int nDnsThreads;
     int fUseNolNet;
+    int useNextChain;
     int fWipeBan;
     int fWipeIgnore;
     const char* mbox;
@@ -63,7 +65,7 @@ public:
     const char* seedNode;
     std::set<uint64_t> filter_whitelist;
 
-    CDnsSeedOpts() : nThreads(96), nDnsThreads(4), nPort(53), mbox(NULL), ns(NULL), host(NULL), tor(NULL), fUseNolNet(false), fWipeBan(false), fWipeIgnore(false), ipv4_proxy(NULL), ipv6_proxy(NULL), seedNode(NULL) {}
+    CDnsSeedOpts() : nThreads(96), nDnsThreads(4), nPort(53), mbox(NULL), ns(NULL), host(NULL), tor(NULL), fUseNolNet(false), useNextChain(false), fWipeBan(false), fWipeIgnore(false), ipv4_proxy(NULL), ipv6_proxy(NULL), seedNode(NULL) {}
     void ParseCommandLine(int argc, char** argv)
     {
         static const char* help = "dnsseed\n"
@@ -82,6 +84,7 @@ public:
                                   "-w f1,f2,...    Allow these flag combinations as filters\n"
                                   "-s <ip:port>    Connect to this node to find other nodes\n"
                                   "--nolnet        Use nolnet\n"
+                                  "--nxc           Use NextChain\n"
                                   "--wipeban       Wipe list of banned nodes\n"
                                   "--wipeignore    Wipe list of ignored nodes\n"
                                   "--quiet         Don't print stats\n"
@@ -103,6 +106,7 @@ public:
                 {"proxyipv6", required_argument, 0, 'k'},
                 {"filter", required_argument, 0, 'w'},
                 {"nolnet", no_argument, &fUseNolNet, 1},
+                {"nxc", no_argument, &useNextChain, 1},
                 {"wipeban", no_argument, &fWipeBan, 1},
                 {"wipeignore", no_argument, &fWipeBan, 1},
                 {"quiet", no_argument, &fQuiet, 1},
@@ -240,7 +244,8 @@ void LoadFromNode(const char* ipPort)
     printf("Loading addresses from %s\n", ipPort);
     vector<CAddress> addr;
     CServiceResult res;
-    res.service = CService(ipPort, fNolNet ? 9333 : 8333, true);
+    unsigned int portnum = nextChain ? 7228 : fNolNet ? 9333 : 8333;
+    res.service = CService(ipPort, portnum, true);
     res.nBanTime = 0;
     res.nClientV = 0;
     res.nHeight = 0;
@@ -597,6 +602,7 @@ extern "C" void* ThreadStats(void*)
 static const string mainnet_seeds[] = { /* "btccash-seeder.bitcoinunlimited.info", */ "seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", ""};
 static const string nolnet_seeds[] = {"nolnet-seed.bitcoinunlimited.info",
     ""};
+static const string nextChainSeeds[] = {"seed.nextchain.cash", ""};
 static const string* seeds = mainnet_seeds;
 
 extern "C" void* ThreadSeeder(void*)
@@ -677,6 +683,17 @@ int main(int argc, char** argv)
         seeds = nolnet_seeds;
         fNolNet = true;
     }
+    if (opts.useNextChain)
+    {
+        printf("Using NextChain.\n");
+        pchMessageStart[0] = 0x72;
+        pchMessageStart[1] = 0x27;
+        pchMessageStart[2] = 0x12;
+        pchMessageStart[3] = 0x21;
+        seeds = nextChainSeeds;
+        nextChain = true;
+    }
+    
     if (!opts.ns)
     {
         log_printf("No nameserver set. Not starting DNS server.\n");
