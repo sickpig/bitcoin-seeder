@@ -117,7 +117,7 @@ public:
         READWRITE(REF(CompactMapSerialization(xmap)));
         if (nSerSize > MAX_XVERSION_MAP_SIZE)
             throw std::ios_base::failure(
-                strprintf("A version message xmap might at most be %d bytes.", MAX_XVERSION_MAP_SIZE));
+                "A version message xmap too large");
         return nSerSize;
     }
 };
