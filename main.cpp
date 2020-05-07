@@ -624,6 +624,7 @@ extern "C" void* ThreadSeeder(void*)
 
 int main(int argc, char** argv)
 {
+    printf("Bitcoin Unlimited DNS seeder\n");
     signal(SIGPIPE, SIG_IGN);
     setbuf(stdout, NULL);
     CDnsSeedOpts opts;
