@@ -74,10 +74,10 @@ private:
     uint64_t grapheneVersion = 0;
     uint64_t electrsVersion = 0;
     uint64_t capdVersion = 0;
-    int64 lastTry;
-    int64 ourLastTry;
-    int64 ourLastSuccess;
-    int64 ignoreTill;
+    int64 lastTry = 0;
+    int64 ourLastTry = 0;
+    int64 ourLastSuccess = 0;
+    int64 ignoreTill = 0;
     CAddrStat stat2H;
     CAddrStat stat8H;
     CAddrStat stat1D;

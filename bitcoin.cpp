@@ -33,6 +33,8 @@ public:
     uint64_t maxGrapheneVersion = 0;
     uint64_t electrsVersion = 0;
     uint64_t capdVersion = 0;
+
+    string fault;
 private:
 
     int GetTimeout()
@@ -240,6 +242,7 @@ private:
             if (!hdr.IsValid())
             {
                 printf("%s: BAD (invalid header)\n", ToString(you).c_str());
+                fault = "invalid header";
                 ban = 100000;
                 return true;
             }
@@ -248,6 +251,7 @@ private:
             if (!fNolNet && (nMessageSize > MAX_SIZE))
             {
                 printf("%s: BAD (message too large)\n", ToString(you).c_str());
+                fault = "message too large";
                 ban = 100000;
                 return true;
             }
@@ -290,7 +294,10 @@ public:
     {
         bool res = true;
         if (!ConnectSocket(you, sock))
+        {
+            fault = "cannot connect";
             return false;
+        }
         PushVersion();
         Send();
         int64 now;
@@ -315,7 +322,10 @@ public:
             if (ret != 1)
             {
                 if (!doneAfter)
+                {
+                    fault = "close on select";
                     res = false;
+                }
                 break;
             }
             int nBytes = recv(sock, pchBuf, sizeof(pchBuf), 0);
@@ -328,12 +338,14 @@ public:
             else if (nBytes == 0)
             {
                 // printf("%s: BAD (connection closed prematurely)\n", ToString(you).c_str());
+                fault = "cnxn close";
                 res = false;
                 break;
             }
             else
             {
                 // printf("%s: BAD (connection error)\n", ToString(you).c_str());
+                fault = "cnxn error";
                 res = false;
                 break;
             }
@@ -341,7 +353,10 @@ public:
             Send();
         }
         if (sock == INVALID_SOCKET)
+        {
+            fault = "invalid socket";
             res = false;
+        }
         close(sock);
         sock = INVALID_SOCKET;
         return (ban == 0) && res;
@@ -388,7 +403,7 @@ bool TestNode(const CService& cip, uint64_t& grapheneVersion, uint64_t& electrum
         grapheneVersion = node.maxGrapheneVersion;
         electrumServerVersion = node.electrsVersion;
         capdVersion = node.capdVersion;
-        //  printf("%s: %s!!!\n", cip.ToString().c_str(), ret ? "GOOD" : "BAD");
+        // printf("\n%s (%x:%s): %s %s", cip.ToString().c_str(), clientV, clientSV.c_str(), node.fault.c_str(), ret ? "GOOD" : "BAD");
         return ret;
     }
     catch (std::ios_base::failure& e)

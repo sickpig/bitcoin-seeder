@@ -3,13 +3,14 @@ Manual test:
 run with: ./dnsseed -h seed.bitcoinunlimited.net -n seed.bitcoinunlimited.net -p 12345 -m email@example.com -t 1 -d 1
 $ dig seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 $ dig graphene.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
-$ dig electrumserver.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+$ dig electrum.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 
 Stop resolved on port 53 and start our dns seeder
 # systemctl disable systemd-resolved
 # systemctl mask systemd-resolved
 # systemctl stop systemd-resolved
 # ./dnsseed --nxc -s 127.0.0.1 -h seed.nextchain.cash -n seed.nextchain.cash -m g.andrew.stone@gmail.com
+# ./dnsseed -s 127.0.0.1 -h seed.bitcoinunlimited.net -n seed.bitcoinunlimited.net -m g.andrew.stone@gmail.com
 
 */
 
@@ -39,6 +40,8 @@ extern "C" {
 #define ANSI_COLOR_MAGENTA "\x1b[35m"
 #define ANSI_COLOR_CYAN "\x1b[36m"
 #define ANSI_COLOR_RESET "\x1b[0m"
+
+const unsigned char BU_CANNED_ELECTRUM_SERVER[2][4] = { { 173, 212, 243, 103 }, { 161, 35, 110, 39 } };
 
 using namespace std;
 
@@ -285,7 +288,7 @@ extern "C" void* ThreadCrawler(void* data)
     {
         std::vector<CServiceResult> ips;
         int wait = 5;
-        db.GetMany(ips, 16, wait);
+        db.GetMany(ips, 4, wait);
         int64 now = time(NULL);
         if (ips.empty())
         {
@@ -441,6 +444,48 @@ int SelectRandomByXversion(uint64 xverField, addr_t* addr, int max)
         return max2;
 }
 
+int SelectRandomBy2Xversion(uint64 xverField, uint64 xverField1, addr_t* addr, int max)
+{
+        static bool nets[NET_MAX] = {};
+        if (!nets[NET_IPV4])
+        {
+            nets[NET_IPV4] = true;
+            nets[NET_IPV6] = true;
+        }
+
+        set<CNetAddr> ips;
+        db.GetIPs(ips, 1000, nets, xverField);
+        db.GetIPs(ips, 1000, nets, xverField1);
+
+        int max2 = std::min(max, (int) ips.size());
+
+        int i = 0;
+        for(int i=0;i<max;i++)
+        {
+            if (ips.size()==0) break;
+
+            int pos = rand() % ips.size();
+            auto it = std::begin(ips);
+            std::advance(it, pos);
+            auto& cn = *it;
+
+            struct in_addr addr4;
+            struct in6_addr addr6;
+            if (cn.GetInAddr(&addr4))
+                {
+                    addr[i].v = 4;
+                    memcpy(&addr[i].data.v4, &addr4, 4);
+                }
+            else if (cn.GetIn6Addr(&addr6))
+                {
+                    addr[i].v = 6;
+                    memcpy(&addr[i].data.v6, &addr6, 16);
+                }
+            ips.erase(it);
+        }
+        return max2;
+}
+
 extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int max, int ipv4, int ipv6)
 {
     CDnsThread* thread = (CDnsThread*)data;
@@ -509,13 +554,22 @@ extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int 
         return 0;
 
     // If the host is graphene, then only return graphene compatible nodes
-    if ((sz==strlen("graphene")) && (strncasecmp(requestedHostname, "graphene", sz)==0))
+    if ((sz==8) && (strncasecmp(requestedHostname, "graphene", sz)==0))
     {
-        return SelectRandomByXversion(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED, addr, max);
+        return SelectRandomBy2Xversion(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED,XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED_OLD, addr, max);
     }
-    else    if ((sz==strlen("electrumserver")) && (strncasecmp(requestedHostname, "electrumserver", sz)==0))
+    else if ((sz==8) && (strncasecmp(requestedHostname, "electrum", sz)==0))
     {
-        return SelectRandomByXversion(XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION, addr, max);
+        auto ip = SelectRandomBy2Xversion(XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION, XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION_OLD, addr, max);
+        if (ip != 0) return ip;
+        else  // Return hard-coded choices
+        {
+            addr[0].v = 4;
+            memcpy(&addr[0].data.v4, &BU_CANNED_ELECTRUM_SERVER[0], 4);
+            addr[1].v = 4;
+            memcpy(&addr[1].data.v4, &BU_CANNED_ELECTRUM_SERVER[1], 4);
+            return 2;
+        }
     }
 
     return 0;
