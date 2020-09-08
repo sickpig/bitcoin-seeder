@@ -4,6 +4,13 @@ run with: ./dnsseed -h seed.bitcoinunlimited.net -n seed.bitcoinunlimited.net -p
 $ dig seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 $ dig graphene.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
 $ dig electrumserver.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+
+Stop resolved on port 53 and start our dns seeder
+# systemctl disable systemd-resolved
+# systemctl mask systemd-resolved
+# systemctl stop systemd-resolved
+# ./dnsseed --nxc -s 127.0.0.1 -h seed.nextchain.cash -n seed.nextchain.cash -m g.andrew.stone@gmail.com
+
 */
 
 #include <algorithm>
