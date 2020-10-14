@@ -129,6 +129,36 @@ enum
         }                                                                               \
     }
 
+
+/**
+ * Support for ADD_SERIALIZE_METHODS and READWRITE macro
+ */
+struct CSerActionSerialize
+{
+    constexpr bool ForRead() const { return false; }
+};
+struct CSerActionUnserialize
+{
+    constexpr bool ForRead() const { return true; }
+};
+//
+// Support for IMPLEMENT_SERIALIZE and READWRITE macro
+//
+class CSerActionGetSerializeSize
+{
+};
+
+/**
+ * Used to acquire a non-const pointer "this" to generate bodies
+ * of const serialization operations from a template
+ */
+template <typename T>
+inline T *NCONST_PTR(const T *val)
+{
+    return const_cast<T *>(val);
+}
+
+
 #define READWRITE(obj) (nSerSize += ::SerReadWrite(s, (obj), nType, nVersion, ser_action))
 
 
@@ -555,7 +585,7 @@ inline unsigned int GetSerializeSize(const T& a, long nType, int nVersion = PROT
 }
 
 template <typename Stream, typename T>
-inline void Serialize(Stream& os, const T& a, long nType, int nVersion = PROTOCOL_VERSION)
+inline void Serialize(Stream& os, T& a, long nType, int nVersion = PROTOCOL_VERSION)
 {
     a.Serialize(os, (int)nType, nVersion);
 }
@@ -870,27 +900,15 @@ void Unserialize(Stream& is, std::set<K, Pred, A>& m, int nType, int nVersion)
 }
 
 
-//
-// Support for IMPLEMENT_SERIALIZE and READWRITE macro
-//
-class CSerActionGetSerializeSize
-{
-};
-class CSerActionSerialize
-{
-};
-class CSerActionUnserialize
-{
-};
 
 template <typename Stream, typename T>
-inline unsigned int SerReadWrite(Stream& s, const T& obj, int nType, int nVersion, CSerActionGetSerializeSize ser_action)
+inline unsigned int SerReadWrite(Stream& s, T& obj, int nType, int nVersion, CSerActionGetSerializeSize ser_action)
 {
     return ::GetSerializeSize(obj, nType, nVersion);
 }
 
 template <typename Stream, typename T>
-inline unsigned int SerReadWrite(Stream& s, const T& obj, int nType, int nVersion, CSerActionSerialize ser_action)
+inline unsigned int SerReadWrite(Stream& s, T& obj, int nType, int nVersion, CSerActionSerialize ser_action)
 {
     ::Serialize(s, obj, nType, nVersion);
     return 0;
@@ -1259,6 +1277,31 @@ public:
         return (*this);
     }
 };
+
+/**
+ * Implement three methods for serializable objects. These are actually wrappers over
+ * "SerializationOp" template, which implements the body of each class' serialization
+ * code. Adding "ADD_SERIALIZE_METHODS" in the body of the class causes these wrappers to be
+ * added as members.
+ */
+#define ADD_SERIALIZE_METHODS                                        \
+    template <typename Stream>                                       \
+    void Serialize(Stream &s, int nType, int nVersion) const         \
+    {                                                                \
+        NCONST_PTR(this)->SerializationOp(s, CSerActionSerialize()); \
+    }                                                                \
+    template <typename Stream>                                       \
+    void Unserialize(Stream &s, int nType, int nVersion)             \
+    {                                                                \
+        SerializationOp(s, CSerActionUnserialize());                 \
+    }                                                                                \
+    unsigned int GetSerializeSize(int nType = 0, int nVersion = PROTOCOL_VERSION)    \
+    {                                                                                \
+        CDataStream s;                                                               \
+        return SerializationOp(s, CSerActionSerialize());                            \
+    }                                                                                \
+
+
 
 #ifdef TESTCDATASTREAM
 // VC6sp6

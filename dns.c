@@ -415,7 +415,7 @@ ssize_t static dnshandle(dns_opt_t* opt, const unsigned char* inbuf, size_t insi
     unsigned char* outpos = outbuf + (inpos - inbuf);
     unsigned char* outend = outbuf + BUFLEN;
 
-    //   printf("DNS: Request host='%s' type=%i class=%i\n", name, typ, cls);
+    //    printf("DNS: Request host='%s' type=%i class=%i\n", name, typ, cls);
 
     // calculate max size of authority section
 
@@ -542,15 +542,18 @@ int dnsserver(dns_opt_t* opt)
     int replySocket;
     if (listenSocket == -1)
     {
+        printf("opening socket\n");
         struct sockaddr_in6 si_me;
         if ((listenSocket = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) == -1)
         {
+            printf("Unable to open listening socket\n");
             listenSocket = -1;
             return -1;
         }
         replySocket = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
         if (replySocket == -1)
         {
+            printf("Unable to open reply socket\n");
             close(listenSocket);
             return -1;
         }
@@ -561,7 +564,11 @@ int dnsserver(dns_opt_t* opt)
         si_me.sin6_port = htons(opt->port);
         si_me.sin6_addr = in6addr_any;
         if (bind(listenSocket, (struct sockaddr*)&si_me, sizeof(si_me)) == -1)
+        {
+            printf("Cannot bind to port %d, returning.\n", opt->port);
             return -2;
+        }
+        printf("Listening on port %d\n", opt->port);
     }
 
     unsigned char inbuf[BUFLEN], outbuf[BUFLEN];

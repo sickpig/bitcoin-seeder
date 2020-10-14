@@ -1,4 +1,21 @@
+/*
+Manual test:
+run with: ./dnsseed -h seed.bitcoinunlimited.net -n seed.bitcoinunlimited.net -p 12345 -m email@example.com -t 1 -d 1
+$ dig seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+$ dig graphene.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+$ dig electrum.seed.bitcoinunlimited.net @127.0.0.1 -p 12345
+
+Stop resolved on port 53 and start our dns seeder
+# systemctl disable systemd-resolved
+# systemctl mask systemd-resolved
+# systemctl stop systemd-resolved
+# ./dnsseed --nxc -s 127.0.0.1 -h seed.nextchain.cash -n seed.nextchain.cash -m g.andrew.stone@gmail.com
+# ./dnsseed -s 127.0.0.1 -h seed.bitcoinunlimited.net -n seed.bitcoinunlimited.net -m g.andrew.stone@gmail.com
+
+*/
+
 #include <algorithm>
+#include <string.h>
 
 #define __STDC_FORMAT_MACROS
 #include <atomic>
@@ -8,9 +25,13 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-
 #include "bitcoin.h"
 #include "db.h"
+#include "xversionkeys.h"
+
+extern "C" {
+#include "dns.h"
+}
 
 #define ANSI_COLOR_RED "\x1b[31m"
 #define ANSI_COLOR_GREEN "\x1b[32m"
@@ -20,10 +41,16 @@
 #define ANSI_COLOR_CYAN "\x1b[36m"
 #define ANSI_COLOR_RESET "\x1b[0m"
 
+const unsigned char BU_CANNED_ELECTRUM_SERVER[2][4] = { { 173, 212, 243, 103 }, { 161, 35, 110, 39 } };
+
 using namespace std;
 
 bool fNolNet = false;
+bool nextChain = false;
 int fQuiet = 0;
+
+addr_t  provided;
+addr_t* alwaysProvide = nullptr;
 
 inline void log_printf(const char* fmt, ...)
 {
@@ -42,6 +69,7 @@ public:
     int nPort;
     int nDnsThreads;
     int fUseNolNet;
+    int useNextChain;
     int fWipeBan;
     int fWipeIgnore;
     const char* mbox;
@@ -53,7 +81,7 @@ public:
     const char* seedNode;
     std::set<uint64_t> filter_whitelist;
 
-    CDnsSeedOpts() : nThreads(96), nDnsThreads(4), nPort(53), mbox(NULL), ns(NULL), host(NULL), tor(NULL), fUseNolNet(false), fWipeBan(false), fWipeIgnore(false), ipv4_proxy(NULL), ipv6_proxy(NULL), seedNode(NULL) {}
+    CDnsSeedOpts() : nThreads(96), nDnsThreads(4), nPort(53), mbox(NULL), ns(NULL), host(NULL), tor(NULL), fUseNolNet(false), useNextChain(false), fWipeBan(false), fWipeIgnore(false), ipv4_proxy(NULL), ipv6_proxy(NULL), seedNode(NULL) {}
     void ParseCommandLine(int argc, char** argv)
     {
         static const char* help = "dnsseed\n"
@@ -66,12 +94,14 @@ public:
                                   "-t <threads>    Number of crawlers to run in parallel (default 96)\n"
                                   "-d <threads>    Number of DNS server threads (default 4)\n"
                                   "-p <port>       UDP port to listen on (default 53)\n"
+                                  "-a <ip>         Always provide this IPv4 address\n"
                                   "-o <ip:port>    Tor proxy IP/Port\n"
                                   "-i <ip:port>    IPV4 SOCKS5 proxy IP/Port\n"
                                   "-k <ip:port>    IPV6 SOCKS5 proxy IP/Port\n"
                                   "-w f1,f2,...    Allow these flag combinations as filters\n"
                                   "-s <ip:port>    Connect to this node to find other nodes\n"
                                   "--nolnet        Use nolnet\n"
+                                  "--nxc           Use NextChain\n"
                                   "--wipeban       Wipe list of banned nodes\n"
                                   "--wipeignore    Wipe list of ignored nodes\n"
                                   "--quiet         Don't print stats\n"
@@ -93,6 +123,7 @@ public:
                 {"proxyipv6", required_argument, 0, 'k'},
                 {"filter", required_argument, 0, 'w'},
                 {"nolnet", no_argument, &fUseNolNet, 1},
+                {"nxc", no_argument, &useNextChain, 1},
                 {"wipeban", no_argument, &fWipeBan, 1},
                 {"wipeignore", no_argument, &fWipeBan, 1},
                 {"quiet", no_argument, &fQuiet, 1},
@@ -100,11 +131,18 @@ public:
 
                 {0, 0, 0, 0}};
             int option_index = 0;
-            int c = getopt_long(argc, argv, "h:n:m:t:p:d:o:i:k:w:s:", long_options, &option_index);
+            int c = getopt_long(argc, argv, "a:h:n:m:t:p:d:o:i:k:w:s:", long_options, &option_index);
             if (c == -1)
                 break;
             switch (c)
             {
+            case 'a':
+            {
+                const char* ip = optarg;
+                provided.v = 4;
+                inet_pton(AF_INET, ip, provided.data.v4);
+                alwaysProvide = &provided;
+            } break;
             case 'h':
             {
                 host = optarg;
@@ -219,24 +257,22 @@ public:
     }
 };
 
-extern "C" {
-#include "dns.h"
-}
-
 CAddrDb db;
 
 void LoadFromNode(const char* ipPort)
 {
-    printf("Loading addresses from %s\n", ipPort);
     vector<CAddress> addr;
     CServiceResult res;
-    res.service = CService(ipPort, fNolNet ? 9333 : 8333, true);
+    unsigned int portnum = nextChain ? 7228 : fNolNet ? 9333 : 8333;
+    printf("Loading addresses from %s: %d\n", ipPort, portnum);
+    res.service = CService(ipPort, portnum, true);
     res.nBanTime = 0;
     res.nClientV = 0;
     res.nHeight = 0;
     res.strClientV = "";
-    res.fGood = TestNode(res.service, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, &addr);
-    db.Add(addr);
+    res.fGood = TestNode(res.service, res.grapheneVersion, res.electrsVersion, res.capdVersion, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, &addr);
+    db.Add(addr); // Add all the nodes we got from the ADDR message
+    db.Add(res.service, res);  // Explicitly add this node because we know its XVERSION config
     printf("Found %d addresses: ", (int)addr.size());
     for (vector<CAddress>::iterator i = addr.begin(); i != addr.end(); i++)
     {
@@ -252,7 +288,7 @@ extern "C" void* ThreadCrawler(void* data)
     {
         std::vector<CServiceResult> ips;
         int wait = 5;
-        db.GetMany(ips, 16, wait);
+        db.GetMany(ips, 4, wait);
         int64 now = time(NULL);
         if (ips.empty())
         {
@@ -270,7 +306,8 @@ extern "C" void* ThreadCrawler(void* data)
             res.nHeight = 0;
             res.strClientV = "";
             bool getaddr = res.ourLastSuccess + 86400 < now;
-            res.fGood = TestNode(res.service, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, getaddr ? &addr : NULL);
+            res.fGood = TestNode(res.service, res.grapheneVersion, res.electrsVersion, res.capdVersion, res.nBanTime, res.nClientV, res.strClientV, res.nHeight, getaddr ? &addr : NULL);
+            //    if (res.fGood) printf("\nClient: %s, graphene: %lu\n", res.strClientV.c_str(), (long unsigned int) res.grapheneVersion);
         }
         db.ResultMany(ips);
         db.Add(addr);
@@ -365,12 +402,97 @@ public:
     }
 };
 
+
+int SelectRandomByXversion(uint64 xverField, addr_t* addr, int max)
+{
+        static bool nets[NET_MAX] = {};
+        if (!nets[NET_IPV4])
+        {
+            nets[NET_IPV4] = true;
+            nets[NET_IPV6] = true;
+        }
+
+        set<CNetAddr> ips;
+        db.GetIPs(ips, 1000, nets, xverField);
+
+        int max2 = std::min(max, (int) ips.size());
+
+        int i = 0;
+        for(int i=0;i<max;i++)
+        {
+            if (ips.size()==0) break;
+
+            int pos = rand() % ips.size();
+            auto it = std::begin(ips);
+            std::advance(it, pos);
+            auto& cn = *it;
+
+            struct in_addr addr4;
+            struct in6_addr addr6;
+            if (cn.GetInAddr(&addr4))
+                {
+                    addr[i].v = 4;
+                    memcpy(&addr[i].data.v4, &addr4, 4);
+                }
+            else if (cn.GetIn6Addr(&addr6))
+                {
+                    addr[i].v = 6;
+                    memcpy(&addr[i].data.v6, &addr6, 16);
+                }
+            ips.erase(it);
+        }
+        return max2;
+}
+
+int SelectRandomBy2Xversion(uint64 xverField, uint64 xverField1, addr_t* addr, int max)
+{
+        static bool nets[NET_MAX] = {};
+        if (!nets[NET_IPV4])
+        {
+            nets[NET_IPV4] = true;
+            nets[NET_IPV6] = true;
+        }
+
+        set<CNetAddr> ips;
+        db.GetIPs(ips, 1000, nets, xverField);
+        db.GetIPs(ips, 1000, nets, xverField1);
+
+        int max2 = std::min(max, (int) ips.size());
+
+        int i = 0;
+        for(int i=0;i<max;i++)
+        {
+            if (ips.size()==0) break;
+
+            int pos = rand() % ips.size();
+            auto it = std::begin(ips);
+            std::advance(it, pos);
+            auto& cn = *it;
+
+            struct in_addr addr4;
+            struct in6_addr addr6;
+            if (cn.GetInAddr(&addr4))
+                {
+                    addr[i].v = 4;
+                    memcpy(&addr[i].data.v4, &addr4, 4);
+                }
+            else if (cn.GetIn6Addr(&addr6))
+                {
+                    addr[i].v = 6;
+                    memcpy(&addr[i].data.v6, &addr6, 16);
+                }
+            ips.erase(it);
+        }
+        return max2;
+}
+
 extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int max, int ipv4, int ipv6)
 {
     CDnsThread* thread = (CDnsThread*)data;
 
     uint64_t requestedFlags = 0;
     int hostlen = strlen(requestedHostname);
+    // printf("requested hostname: %s\n", requestedHostname);
     if (hostlen > 1 && requestedHostname[0] == 'x' && requestedHostname[1] != '0')
     {
         char* pEnd;
@@ -380,36 +502,77 @@ extern "C" int GetIPList(void* data, char* requestedHostname, addr_t* addr, int 
         else
             return 0;
     }
-    else if (strcasecmp(requestedHostname, thread->dns_opt.host))
-        return 0;
-    thread->cacheHit(requestedFlags);
-    auto& thisflag = thread->perflag[requestedFlags];
-    unsigned int size = thisflag.cache.size();
-    unsigned int maxmax = (ipv4 ? thisflag.nIPv4 : 0) + (ipv6 ? thisflag.nIPv6 : 0);
-    if (max > size)
-        max = size;
-    if (max > maxmax)
-        max = maxmax;
-    int i = 0;
-    while (i < max)
+
+    // Find the bounds of the first name in the dotted hostname
+    int sz = 0;
+    char* end = strchr(requestedHostname, '.');
+    if (end != nullptr) sz = end-requestedHostname;
+    else sz = strlen(requestedHostname);
+
+    // If just the base DNS was specified, then return nodes without filtering
+    if (strcasecmp(requestedHostname, thread->dns_opt.host)==0)
     {
-        int j = i + (rand() % (size - i));
-        do
+        thread->cacheHit(requestedFlags);
+        auto& thisflag = thread->perflag[requestedFlags];
+        unsigned int size = thisflag.cache.size();
+        unsigned int maxmax = (ipv4 ? thisflag.nIPv4 : 0) + (ipv6 ? thisflag.nIPv6 : 0);
+        if (max > size)
+            max = size;
+        if (max > maxmax)
+            max = maxmax;
+        int i = 0;
+        if (alwaysProvide)
         {
-            bool ok = (ipv4 && thisflag.cache[j].v == 4) ||
-                      (ipv6 && thisflag.cache[j].v == 6);
-            if (ok)
-                break;
-            j++;
-            if (j == size)
-                j = i;
-        } while (1);
-        addr[i] = thisflag.cache[j];
-        thisflag.cache[j] = thisflag.cache[i];
-        thisflag.cache[i] = addr[i];
-        i++;
+            memcpy(&addr[i],alwaysProvide, sizeof(addr_t));
+            thisflag.cache[i] = addr[i];
+            i++;
+        }
+
+        while (i < max)
+        {
+            int j = i + (rand() % (size - i));
+            do
+            {
+                bool ok = (ipv4 && thisflag.cache[j].v == 4) ||
+                    (ipv6 && thisflag.cache[j].v == 6);
+                if (ok)
+                    break;
+                j++;
+                if (j == size)
+                    j = i;
+            } while (1);
+            addr[i] = thisflag.cache[j];
+            thisflag.cache[j] = thisflag.cache[i];
+            thisflag.cache[i] = addr[i];
+            i++;
+        }
+        return max;
     }
-    return max;
+
+    // For 4 word names, make sure the last 3 match our suffix
+    if (strcasecmp(end+1, thread->dns_opt.host)!=0)
+        return 0;
+
+    // If the host is graphene, then only return graphene compatible nodes
+    if ((sz==8) && (strncasecmp(requestedHostname, "graphene", sz)==0))
+    {
+        return SelectRandomBy2Xversion(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED,XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED_OLD, addr, max);
+    }
+    else if ((sz==8) && (strncasecmp(requestedHostname, "electrum", sz)==0))
+    {
+        auto ip = SelectRandomBy2Xversion(XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION, XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION_OLD, addr, max);
+        if (ip != 0) return ip;
+        else  // Return hard-coded choices
+        {
+            addr[0].v = 4;
+            memcpy(&addr[0].data.v4, &BU_CANNED_ELECTRUM_SERVER[0], 4);
+            addr[1].v = 4;
+            memcpy(&addr[1].data.v4, &BU_CANNED_ELECTRUM_SERVER[1], 4);
+            return 2;
+        }
+    }
+
+    return 0;
 }
 
 vector<CDnsThread*> dnsThread;
@@ -514,9 +677,10 @@ extern "C" void* ThreadStats(void*)
     return nullptr;
 }
 
-static const string mainnet_seeds[] = {"seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", "seed.deadalnix.me", ""};
+static const string mainnet_seeds[] = { /* "btccash-seeder.bitcoinunlimited.info", */ "seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", ""};
 static const string nolnet_seeds[] = {"nolnet-seed.bitcoinunlimited.info",
     ""};
+static const string nextChainSeeds[] = {"seed.nextchain.cash", ""};
 static const string* seeds = mainnet_seeds;
 
 extern "C" void* ThreadSeeder(void*)
@@ -534,7 +698,7 @@ extern "C" void* ThreadSeeder(void*)
             LookupHost(seeds[i].c_str(), ips);
             for (vector<CNetAddr>::iterator it = ips.begin(); it != ips.end(); it++)
             {
-                db.Add(CService(*it, GetDefaultPort()), true);
+                db.Add(CService(*it, GetDefaultPort()), CServiceResult(), true);
             }
         }
         Sleep(1800000);
@@ -544,6 +708,7 @@ extern "C" void* ThreadSeeder(void*)
 
 int main(int argc, char** argv)
 {
+    printf("Bitcoin Unlimited DNS seeder\n");
     signal(SIGPIPE, SIG_IGN);
     setbuf(stdout, NULL);
     CDnsSeedOpts opts;
@@ -596,6 +761,17 @@ int main(int argc, char** argv)
         seeds = nolnet_seeds;
         fNolNet = true;
     }
+    if (opts.useNextChain)
+    {
+        printf("Using NextChain.\n");
+        pchMessageStart[0] = 0x72;
+        pchMessageStart[1] = 0x27;
+        pchMessageStart[2] = 0x12;
+        pchMessageStart[3] = 0x21;
+        seeds = nextChainSeeds;
+        nextChain = true;
+    }
+    
     if (!opts.ns)
     {
         log_printf("No nameserver set. Not starting DNS server.\n");

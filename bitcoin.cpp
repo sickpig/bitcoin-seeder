@@ -3,6 +3,8 @@
 #include "db.h"
 #include "netbase.h"
 #include "protocol.h"
+#include "xversionmessage.h"
+#include "xversionkeys.h"
 #include "serialize.h"
 #include "uint256.h"
 
@@ -27,6 +29,14 @@ class CNode
     int64 doneAfter;
     CAddress you;
 
+public:
+    uint64_t maxGrapheneVersion = 0;
+    uint64_t electrsVersion = 0;
+    uint64_t capdVersion = 0;
+
+    string fault;
+private:
+
     int GetTimeout()
     {
         if (you.IsTor())
@@ -42,7 +52,7 @@ class CNode
         nHeaderStart = vSend.size();
         vSend << CMessageHeader(pszCommand, 0);
         nMessageStart = vSend.size();
-        //    printf("%s: SEND %s\n", ToString(you).c_str(), pszCommand);
+        //   printf("%s: SEND %s\n", ToString(you).c_str(), pszCommand);
     }
 
     void AbortMessage()
@@ -114,13 +124,13 @@ class CNode
         }
         else
         {
-            doneAfter = time(NULL) + 1;
+            doneAfter = time(NULL) + 5;  // Give extra time because the XVERSION message may come in
         }
     }
 
     bool ProcessMessage(string strCommand, CDataStream& vRecv)
     {
-        //    printf("%s: RECV %s\n", ToString(you).c_str(), strCommand.c_str());
+        //   printf("%s: RECV %s\n", ToString(you).c_str(), strCommand.c_str());
         if (strCommand == "version")
         {
             int64 nTime;
@@ -156,6 +166,23 @@ class CNode
             this->vRecv.SetVersion(min(nVersion, PROTOCOL_VERSION));
             GotVersion();
             return false;
+        }
+
+        if (strCommand == "xversion")
+        {
+            // printf("XVERSION received\n");
+            CXVersionMessage msg;
+            vRecv >> msg;
+            maxGrapheneVersion = msg.as_u64c(XVer::BU_GRAPHENE_MAX_VERSION_SUPPORTED);
+            electrsVersion = msg.as_u64c(XVer::BU_ELECTRUM_SERVER_PROTOCOL_VERSION);
+            BeginMessage("xverack");
+            EndMessage();
+
+            if (!vAddr)  // Early quit if we get an XVERSION message since that's the last thing we need if we aren't looking for an ADDR message
+            {
+                doneAfter = time(NULL) + 1;
+            }
+
         }
 
         if (strCommand == "addr" && vAddr)
@@ -214,7 +241,8 @@ class CNode
             vRecv >> hdr;
             if (!hdr.IsValid())
             {
-                // printf("%s: BAD (invalid header)\n", ToString(you).c_str());
+                printf("%s: BAD (invalid header)\n", ToString(you).c_str());
+                fault = "invalid header";
                 ban = 100000;
                 return true;
             }
@@ -222,7 +250,8 @@ class CNode
             unsigned int nMessageSize = hdr.nMessageSize;
             if (!fNolNet && (nMessageSize > MAX_SIZE))
             {
-                // printf("%s: BAD (message too large)\n", ToString(you).c_str());
+                printf("%s: BAD (message too large)\n", ToString(you).c_str());
+                fault = "message too large";
                 ban = 100000;
                 return true;
             }
@@ -265,7 +294,10 @@ public:
     {
         bool res = true;
         if (!ConnectSocket(you, sock))
+        {
+            fault = "cannot connect";
             return false;
+        }
         PushVersion();
         Send();
         int64 now;
@@ -290,7 +322,10 @@ public:
             if (ret != 1)
             {
                 if (!doneAfter)
+                {
+                    fault = "close on select";
                     res = false;
+                }
                 break;
             }
             int nBytes = recv(sock, pchBuf, sizeof(pchBuf), 0);
@@ -303,12 +338,14 @@ public:
             else if (nBytes == 0)
             {
                 // printf("%s: BAD (connection closed prematurely)\n", ToString(you).c_str());
+                fault = "cnxn close";
                 res = false;
                 break;
             }
             else
             {
                 // printf("%s: BAD (connection error)\n", ToString(you).c_str());
+                fault = "cnxn error";
                 res = false;
                 break;
             }
@@ -316,7 +353,10 @@ public:
             Send();
         }
         if (sock == INVALID_SOCKET)
+        {
+            fault = "invalid socket";
             res = false;
+        }
         close(sock);
         sock = INVALID_SOCKET;
         return (ban == 0) && res;
@@ -343,7 +383,7 @@ public:
     }
 };
 
-bool TestNode(const CService& cip, int& ban, int& clientV, std::string& clientSV, int& blocks, vector<CAddress>* vAddr)
+bool TestNode(const CService& cip, uint64_t& grapheneVersion, uint64_t& electrumServerVersion, uint64_t& capdVersion, int& ban, int& clientV, std::string& clientSV, int& blocks, vector<CAddress>* vAddr)
 {
     try
     {
@@ -360,7 +400,10 @@ bool TestNode(const CService& cip, int& ban, int& clientV, std::string& clientSV
         clientV = node.GetClientVersion();
         clientSV = node.GetClientSubVersion();
         blocks = node.GetStartingHeight();
-        //  printf("%s: %s!!!\n", cip.ToString().c_str(), ret ? "GOOD" : "BAD");
+        grapheneVersion = node.maxGrapheneVersion;
+        electrumServerVersion = node.electrsVersion;
+        capdVersion = node.capdVersion;
+        // printf("\n%s (%x:%s): %s %s", cip.ToString().c_str(), clientV, clientSV.c_str(), node.fault.c_str(), ret ? "GOOD" : "BAD");
         return ret;
     }
     catch (std::ios_base::failure& e)
