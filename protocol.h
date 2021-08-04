@@ -15,10 +15,10 @@
 #include <string>
 #include "uint256.h"
 
-extern bool fNolNet;
-static inline unsigned short GetDefaultPort(const bool nolnet = fNolNet)
+extern bool fTestNet;
+static inline unsigned short GetDefaultPort(const bool testnet = fTestNet)
 {
-    return nolnet ? 9333 : 8333;
+    return testnet ? 18333 : 8333;
 }
 
 //

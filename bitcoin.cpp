@@ -10,7 +10,7 @@
 
 using namespace std;
 
-extern bool fNolNet;
+extern bool fTestNet;
 
 class CNode
 {
@@ -220,7 +220,7 @@ class CNode
             }
             string strCommand = hdr.GetCommand();
             unsigned int nMessageSize = hdr.nMessageSize;
-            if (!fNolNet && (nMessageSize > MAX_SIZE))
+            if (!fTestNet && (nMessageSize > MAX_SIZE))
             {
                 // printf("%s: BAD (message too large)\n", ToString(you).c_str());
                 ban = 100000;

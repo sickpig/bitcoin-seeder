@@ -22,7 +22,7 @@
 
 using namespace std;
 
-bool fNolNet = false;
+bool fTestNet = false;
 int fQuiet = 0;
 
 inline void log_printf(const char* fmt, ...)
@@ -41,7 +41,7 @@ public:
     int nThreads;
     int nPort;
     int nDnsThreads;
-    int fUseNolNet;
+    int fUseTestNet;
     int fWipeBan;
     int fWipeIgnore;
     const char* mbox;
@@ -53,7 +53,7 @@ public:
     const char* seedNode;
     std::set<uint64_t> filter_whitelist;
 
-    CDnsSeedOpts() : nThreads(96), nDnsThreads(4), nPort(53), mbox(NULL), ns(NULL), host(NULL), tor(NULL), fUseNolNet(false), fWipeBan(false), fWipeIgnore(false), ipv4_proxy(NULL), ipv6_proxy(NULL), seedNode(NULL) {}
+    CDnsSeedOpts() : nThreads(96), nDnsThreads(4), nPort(53), mbox(NULL), ns(NULL), host(NULL), tor(NULL), fUseTestNet(false), fWipeBan(false), fWipeIgnore(false), ipv4_proxy(NULL), ipv6_proxy(NULL), seedNode(NULL) {}
     void ParseCommandLine(int argc, char** argv)
     {
         static const char* help = "dnsseed\n"
@@ -71,7 +71,7 @@ public:
                                   "-k <ip:port>    IPV6 SOCKS5 proxy IP/Port\n"
                                   "-w f1,f2,...    Allow these flag combinations as filters\n"
                                   "-s <ip:port>    Connect to this node to find other nodes\n"
-                                  "--nolnet        Use nolnet\n"
+                                  "--testnet       Use testnet\n"
                                   "--wipeban       Wipe list of banned nodes\n"
                                   "--wipeignore    Wipe list of ignored nodes\n"
                                   "--quiet         Don't print stats\n"
@@ -92,7 +92,7 @@ public:
                 {"proxyipv4", required_argument, 0, 'i'},
                 {"proxyipv6", required_argument, 0, 'k'},
                 {"filter", required_argument, 0, 'w'},
-                {"nolnet", no_argument, &fUseNolNet, 1},
+                {"testnet", no_argument, &fUseTestNet, 1},
                 {"wipeban", no_argument, &fWipeBan, 1},
                 {"wipeignore", no_argument, &fWipeBan, 1},
                 {"quiet", no_argument, &fQuiet, 1},
@@ -230,7 +230,7 @@ void LoadFromNode(const char* ipPort)
     printf("Loading addresses from %s\n", ipPort);
     vector<CAddress> addr;
     CServiceResult res;
-    res.service = CService(ipPort, fNolNet ? 9333 : 8333, true);
+    res.service = CService(ipPort, fTestNet ? 9333 : 8333, true);
     res.nBanTime = 0;
     res.nClientV = 0;
     res.nHeight = 0;
@@ -515,7 +515,7 @@ extern "C" void* ThreadStats(void*)
 }
 
 static const string mainnet_seeds[] = {"seed.bitcoinabc.org", "seed-abc.bitcoinforks.org", "seed.bitprim.org", "seed.deadalnix.me", ""};
-static const string nolnet_seeds[] = {"nolnet-seed.bitcoinunlimited.info",
+static const string testnet_seeds[] = {"testnet-seed-bch.bitcoinforks.org","testnet-seed.bchd.cash","seed.tbch.loping.net",
     ""};
 static const string* seeds = mainnet_seeds;
 
@@ -586,15 +586,15 @@ int main(int argc, char** argv)
         }
     }
     bool fDNS = true;
-    if (opts.fUseNolNet)
+    if (opts.fUseTestNet)
     {
-        printf("Using nolnet.\n");
-        pchMessageStart[0] = 0xfb;
-        pchMessageStart[1] = 0xce;
-        pchMessageStart[2] = 0xc4;
-        pchMessageStart[3] = 0xe9;
-        seeds = nolnet_seeds;
-        fNolNet = true;
+        printf("Using testnet.\n");
+        pchMessageStart[0] = 0xf4;
+        pchMessageStart[1] = 0xe5;
+        pchMessageStart[2] = 0xf3;
+        pchMessageStart[3] = 0xf4;
+        seeds = testnet_seeds;
+        fTestNet = true;
     }
     if (!opts.ns)
     {
