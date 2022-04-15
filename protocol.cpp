@@ -54,7 +54,10 @@ bool CMessageHeader::IsValid() const
 {
     // Check start string
     if (memcmp(pchMessageStart, ::pchMessageStart, sizeof(pchMessageStart)) != 0)
+    {
+        printf("Invalid MessageStart\n");
         return false;
+    }
 
     // Check the command string for errors
     for (const char* p1 = pchCommand; p1 < pchCommand + COMMAND_SIZE; p1++)
